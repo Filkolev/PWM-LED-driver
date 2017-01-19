@@ -265,6 +265,7 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
+		prev_up_button_irq = now;
 		led_event = UP;
 		pr_info("Up button pressed\n");
 	}
