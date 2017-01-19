@@ -32,6 +32,7 @@ setup_pwm_led_gpio(int gpio, const char *target, enum direction direction);
 
 static void unset_pwm_led_gpios(void);
 static int setup_pwm_led_irqs(void);
+static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
 static void led_level_func(struct work_struct *work);
 
@@ -39,8 +40,9 @@ static void led_level_func(struct work_struct *work);
  * Data
  */
 static int down_button_irq, up_button_irq;
-static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
 static struct timespec64 prev_down_button_irq, prev_up_button_irq;
+
+static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
 
 static DECLARE_WORK(led_level_work, led_level_func);
 
@@ -49,10 +51,8 @@ static DECLARE_WORK(led_level_work, led_level_func);
  */
 
 /*
- * Params:
- * * level
+ * Module params:
  * * pulse width...
- * * button and led gpios
  */
 static int down_button_gpio = DOWN_BUTTON_GPIO;
 module_param(down_button_gpio, int, S_IRUGO);
@@ -168,60 +168,50 @@ static void unset_pwm_led_gpios(void)
 	gpio_free(led_gpio);
 }
 
-/* TODO Refactor this */
 static int setup_pwm_led_irqs(void)
 {
 	int ret;
 
-	ret = 0;
-	down_button_irq = gpio_to_irq(down_button_gpio);
-	if (down_button_irq < 0) {
-		pr_err("%s: %s (%d): Failed to obtain IRQ for GPIO %d\n",
-			MODULE_NAME,
-			__func__,
-			__LINE__,
-			down_button_gpio);
-		return down_button_irq;
-	}
+	ret = setup_pwm_led_irq(down_button_gpio, &down_button_irq);
+	if (ret)
+		return ret;
 
-	ret = request_irq(down_button_irq,
-			button_irq_handler,
-			IRQF_TRIGGER_RISING,
-			"pwm-led-down-btn-handler",
-			NULL);
-	if (ret < 0) {
-		pr_err("%s: %s (%d): Request IRQ failed for IRQ %d\n",
-			MODULE_NAME,
-			__func__,
-			__LINE__,
-			down_button_irq);
-
+	ret = setup_pwm_led_irq(up_button_gpio, &up_button_irq);
+	if (ret) {
+		free_irq(down_button_irq, NULL);
 		return ret;
 	}
 
-	up_button_irq = gpio_to_irq(up_button_gpio);
-	if (up_button_irq < 0) {
+	return ret;
+}
+
+static int setup_pwm_led_irq(int gpio, int *irq)
+{
+	int ret;
+
+	ret = 0;
+	*irq = gpio_to_irq(gpio);
+	if (*irq < 0) {
 		pr_err("%s: %s (%d): Failed to obtain IRQ for GPIO %d\n",
 			MODULE_NAME,
 			__func__,
 			__LINE__,
-			up_button_gpio);
-		free_irq(down_button_irq, NULL);
-		return up_button_irq;
+			gpio);
+		return *irq;
 	}
 
-	ret = request_irq(up_button_irq,
+	ret = request_irq(*irq,
 			button_irq_handler,
 			IRQF_TRIGGER_RISING,
-			"pwm-led-up-btn-handler",
+			"pwm-led-btn-handler",
 			NULL);
 	if (ret < 0) {
 		pr_err("%s: %s (%d): Request IRQ failed for IRQ %d\n",
 			MODULE_NAME,
 			__func__,
 			__LINE__,
-			up_button_irq);
-		free_irq(down_button_irq, NULL);
+			*irq);
+
 		return ret;
 	}
 
