@@ -14,14 +14,27 @@
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
 #define LED_MIN_LEVEL 0
-#define LED_MAX_LEVEL 1023
-#define LED_LEVEL_STEP 1023
+#define LED_MAX_LEVEL 2
+#define LED_LEVEL_STEP 1
 
 enum direction {
 	INPUT,
 	OUTPUT
 };
 
+enum event {
+	NONE,
+	UP,
+	DOWN,
+	NUM_EVENTS
+};
+
+enum led_state {
+	OFF,
+	ON,
+	MAX,
+	NUM_STATES
+};
 
 /*
  * Function prototypes
@@ -36,6 +49,10 @@ static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
 static void led_level_func(struct work_struct *work);
 
+static void increase_led_brightness(void);
+static void decrease_led_brightness(void);
+static void do_nothing(void) { }
+
 /*
  * Data
  */
@@ -43,8 +60,16 @@ static int down_button_irq, up_button_irq;
 static struct timespec64 prev_down_button_irq, prev_up_button_irq;
 
 static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
+static enum led_state led_state = OFF;
+static enum event led_event = NONE;
 
 static DECLARE_WORK(led_level_work, led_level_func);
+
+static void (*fsm_functions[NUM_STATES][NUM_EVENTS])(void) = {
+	{ do_nothing, increase_led_brightness, do_nothing },
+	{ do_nothing, increase_led_brightness, decrease_led_brightness },
+	{ do_nothing, do_nothing, decrease_led_brightness }
+};
 
 /*
  * Sysfs attributes
@@ -231,9 +256,8 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
-		//atomic_sub(LED_LEVEL_STEP, &led_level);
-		atomic_set(&led_level, 0); /* TODO remove */
 		prev_down_button_irq = now;
+		led_event = DOWN;
 		pr_info("Down button pressed\n");
 	} else if (irq == up_button_irq) {
 		interval = timespec64_sub(now, prev_up_button_irq);
@@ -241,9 +265,7 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
-		//atomic_add(LED_LEVEL_STEP, &led_level);
-		atomic_set(&led_level, 1); /* TODO remove */
-		prev_up_button_irq = now;
+		led_event = UP;
 		pr_info("Up button pressed\n");
 	}
 
@@ -255,8 +277,34 @@ static void led_level_func(struct work_struct *work)
 {
 	int level;
 
+	fsm_functions[led_state][led_event]();
+	pr_info("led level after: %d\n", atomic_read(&led_level));
+	/*
+	 * TODO replace with setting of intervals for soft pwm, hrtimer will
+	 * take care of the rest.
+	 */
 	level = atomic_read(&led_level);
-	gpio_set_value(led_gpio, level);
+	gpio_set_value(led_gpio, level == 0 ? 0 : 1);
+}
+
+static void increase_led_brightness(void)
+{
+	atomic_inc(&led_level);
+	if (atomic_read(&led_level) == LED_MAX_LEVEL) {
+		led_state = MAX;
+	} else {
+		led_state = ON;
+	}
+}
+
+static void decrease_led_brightness(void)
+{
+	atomic_dec(&led_level);
+	if (atomic_read(&led_level) == LED_MIN_LEVEL) {
+		led_state = OFF;
+	} else {
+		led_state = ON;
+	}
 }
 
 module_init(pwm_led_init);
