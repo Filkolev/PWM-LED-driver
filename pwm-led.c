@@ -108,6 +108,9 @@ static int __init pwm_led_init(void)
 	if (ret)
 		goto irq_err;
 
+	getnstimeofday64(&prev_down_button_irq);
+	getnstimeofday64(&prev_up_button_irq);
+
 	pr_info("%s: PWM LED module loaded\n", MODULE_NAME);
 
 	goto out;
@@ -253,7 +256,8 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 	if (irq == down_button_irq) {
 		interval = timespec64_sub(now, prev_down_button_irq);
-		millis_since_last_irq = interval.tv_nsec / NSEC_PER_MSEC;
+		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
+					(interval.tv_nsec / NSEC_PER_MSEC);
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
@@ -262,7 +266,8 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		pr_info("Down button pressed\n");
 	} else if (irq == up_button_irq) {
 		interval = timespec64_sub(now, prev_up_button_irq);
-		millis_since_last_irq = interval.tv_nsec / NSEC_PER_MSEC;
+		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
+					(interval.tv_nsec / NSEC_PER_MSEC);
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
