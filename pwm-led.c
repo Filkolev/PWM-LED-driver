@@ -93,13 +93,12 @@ MODULE_PARM_DESC(led_gpio,
 static int pulse_frequency = PULSE_FREQUENCY_DEFAULT;
 module_param(pulse_frequency, int, S_IRUGO);
 MODULE_PARM_DESC(pulse_frequency,
-		"Frequency in nanoseconds of PWM (default = 1000).");
+		"Frequency in nanoseconds of PWM (default = 100 000).");
 
 static int __init pwm_led_init(void)
 {
 	int ret;
 
-	ret = 0;
 	ret = setup_pwm_led_gpios();
 	if (ret)
 		goto out;
@@ -182,7 +181,7 @@ setup_pwm_led_gpio(int gpio, const char *target, enum direction direction)
 	if (direction == INPUT) {
 		gpio_direction_input(gpio);
 	} else {
-		gpio_direction_output(gpio, 0);
+		gpio_direction_output(gpio, LOW);
 	}
 
 	gpio_export(gpio, true);
@@ -262,6 +261,7 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		interval = timespec64_sub(now, prev_down_button_irq);
 		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
 					(interval.tv_nsec / NSEC_PER_MSEC);
+
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
@@ -271,6 +271,7 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		interval = timespec64_sub(now, prev_up_button_irq);
 		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
 					(interval.tv_nsec / NSEC_PER_MSEC);
+
 		if (millis_since_last_irq < BUTTON_DEBOUNCE)
 			return IRQ_HANDLED;
 
@@ -334,14 +335,15 @@ static void led_ctrl_func(struct work_struct *work)
 
 	level = atomic_read(&led_level);
 	if (level == LED_MIN_LEVEL || level == LED_MAX_LEVEL) {
-		gpio_set_value(led_gpio, level == LED_MIN_LEVEL ? 0 : 1);
+		gpio_set_value(led_gpio, level == LED_MIN_LEVEL ? LOW : HIGH);
 		schedule_work(work);
 		return;
 	}
 
 	led_gpio_value = gpio_get_value(led_gpio);
 	if (led_gpio_value == LOW) {
-		required_delay = pulse_frequency - (pulse_frequency * level / LED_MAX_LEVEL);
+		required_delay = pulse_frequency -
+				(pulse_frequency * level / LED_MAX_LEVEL);
 	} else {
 		required_delay = pulse_frequency * level / LED_MAX_LEVEL;
 	}
