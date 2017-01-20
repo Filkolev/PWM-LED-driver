@@ -162,7 +162,7 @@ static int __init pwm_led_init(void)
 	getnstimeofday64(&prev_up_button_irq);
 	getnstimeofday64(&prev_led_switch);
 
-	func_select_reg_offset = led_gpio / 10;
+	func_select_reg_offset = 4 * (led_gpio / 10);
 	func_select_bit_offset = (led_gpio % 10) * 3;
 	save_gpio_func_select();
 	gpio_select_func(led_gpio, ALT_FUNC_0);
