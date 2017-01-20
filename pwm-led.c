@@ -4,12 +4,23 @@
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/time64.h>
+#include <asm/io.h>
 
 #define MODULE_NAME "pwm_led_module"
 
+#define BCM2708_PERI_BASE 0x3f000000
+#define GPIO_BASE (BCM2708_PERI_BASE + 0x200000)
+#define GPIO_REGION_SIZE 0xc
+#define PWM_BASE (BCM2708_PERI_BASE + 0x20c000)
+#define PWM_CTL_OFFSET 0x0
+#define PWM_DAT1_OFFSET 0x14
+#define PWM_REGION_SIZE 0x18
+
+#define ALT_FUNC_0 (1 << 2)
+
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
-#define LED_GPIO 18
+#define LED_GPIO 12
 
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
@@ -49,12 +60,21 @@ static void unset_pwm_led_gpios(void);
 static int setup_pwm_led_irqs(void);
 static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
+
 static void led_level_func(struct work_struct *work);
 static void led_ctrl_func(struct work_struct *work);
+
 static void increase_led_brightness(void);
 static void decrease_led_brightness(void);
 static void do_nothing(void) { }
 static void update_led_state(void);
+
+static void activate_pwm_channel(void);
+static void deactivate_pwm_channel(void);
+
+static void save_gpio_func_select(void);
+static void restore_gpio_func_select(void);
+static void gpio_select_func(int gpio, int new_value);
 
 /*
  * Data
@@ -65,6 +85,8 @@ static struct timespec64 prev_down_button_irq, prev_up_button_irq, prev_led_swit
 static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
 static enum led_state led_state = OFF;
 static enum event led_event = NONE;
+static int func_select_initial_val, func_select_bit_offset, func_select_reg_offset;
+static void __iomem *pwm_base, *gpio_base;
 
 static DECLARE_WORK(led_level_work, led_level_func);
 static DECLARE_WORK(led_switch_work, led_ctrl_func);
@@ -88,7 +110,7 @@ MODULE_PARM_DESC(up_button_gpio,
 static int led_gpio = LED_GPIO;
 module_param(led_gpio, int, S_IRUGO);
 MODULE_PARM_DESC(led_gpio,
-		"The GPIO where the LED is connected (default = 18).");
+		"The GPIO where the LED is connected (default = 12).");
 
 static int pulse_frequency = PULSE_FREQUENCY_DEFAULT;
 module_param(pulse_frequency, int, S_IRUGO);
@@ -112,15 +134,47 @@ static int __init pwm_led_init(void)
 	if (ret)
 		goto irq_err;
 
+	pwm_base = ioremap(PWM_BASE, PWM_REGION_SIZE);
+	if (!pwm_base) {
+		pr_err("%s: %s (%d): Error mapping PWM memory\n",
+			MODULE_NAME,
+			__func__,
+			__LINE__);
+
+		goto iomap_err;
+	}
+
+	gpio_base = ioremap(GPIO_BASE, GPIO_REGION_SIZE);
+	if (!gpio_base) {
+		pr_err("%s: %s (%d): Error mapping PWM memory\n",
+			MODULE_NAME,
+			__func__,
+			__LINE__);
+
+		iounmap(pwm_base);
+		goto iomap_err;
+
+	}
+
+	activate_pwm_channel();
+
 	getnstimeofday64(&prev_down_button_irq);
 	getnstimeofday64(&prev_up_button_irq);
 	getnstimeofday64(&prev_led_switch);
+
+	func_select_reg_offset = led_gpio / 10;
+	func_select_bit_offset = (led_gpio % 10) * 3;
+	save_gpio_func_select();
+	gpio_select_func(led_gpio, ALT_FUNC_0);
 
 	schedule_work(&led_switch_work);
 	pr_info("%s: PWM LED module loaded\n", MODULE_NAME);
 
 	goto out;
 
+iomap_err:
+	free_irq(down_button_irq, NULL);
+	free_irq(up_button_irq, NULL);
 irq_err:
 	unset_pwm_led_gpios();
 out:
@@ -131,6 +185,10 @@ static void __exit pwm_led_exit(void)
 {
 	cancel_work_sync(&led_level_work);
 	cancel_work_sync(&led_switch_work);
+	restore_gpio_func_select();
+	deactivate_pwm_channel();
+	iounmap(pwm_base);
+	iounmap(gpio_base);
 	free_irq(down_button_irq, NULL);
 	free_irq(up_button_irq, NULL);
 	unset_pwm_led_gpios();
@@ -147,10 +205,6 @@ static int setup_pwm_led_gpios(void)
 		return ret;
 
 	ret = setup_pwm_led_gpio(up_button_gpio, "up button", INPUT);
-	if (ret)
-		return ret;
-
-	ret = setup_pwm_led_gpio(led_gpio, "led", OUTPUT);
 	if (ret)
 		return ret;
 
@@ -288,6 +342,52 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static void activate_pwm_channel(void)
+{
+	int pwm_ctl_value;
+
+	pwm_ctl_value = ioread32(pwm_base + PWM_CTL_OFFSET);
+	pwm_ctl_value |= 1;
+	iowrite32(pwm_ctl_value, pwm_base + PWM_CTL_OFFSET);
+}
+
+static void deactivate_pwm_channel(void)
+{
+	int pwm_ctl_value;
+
+	pwm_ctl_value = ioread32(pwm_base + PWM_CTL_OFFSET);
+	pwm_ctl_value &= ~1;
+	iowrite32(pwm_ctl_value, pwm_base + PWM_CTL_OFFSET);
+}
+
+static void save_gpio_func_select(void)
+{
+	int val;
+
+	val = ioread32(gpio_base + func_select_reg_offset);
+	func_select_initial_val = (val >> func_select_bit_offset) & 7;
+}
+
+static void restore_gpio_func_select(void)
+{
+	int val;
+
+	val = ioread32(gpio_base + func_select_reg_offset);
+	val &= ~(7 << func_select_bit_offset);
+	val |= func_select_initial_val << func_select_bit_offset;
+	iowrite32(val, gpio_base + func_select_reg_offset);
+}
+
+static void gpio_select_func(int gpio, int new_value)
+{
+	int val;
+
+	val = ioread32(gpio_base + func_select_reg_offset);
+	val &= ~(7 << func_select_bit_offset);
+	val |= new_value << func_select_bit_offset;
+	iowrite32(val, gpio_base + func_select_reg_offset);
+}
+
 static void led_level_func(struct work_struct *work)
 {
 	int level, led_brightness_percent;
@@ -329,32 +429,12 @@ static void decrease_led_brightness(void)
 
 static void led_ctrl_func(struct work_struct *work)
 {
-	int required_delay, nanos_since_led_switch, led_gpio_value, level;
-	struct timespec64 now, diff;
-
-	getnstimeofday64(&now);
-	diff = timespec64_sub(now, prev_led_switch);
-	nanos_since_led_switch = (diff.tv_sec * USEC_PER_SEC) + diff.tv_nsec;
+	int level, led_brightness;
 
 	level = atomic_read(&led_level);
-	if (level == LED_MIN_LEVEL || level == led_max_level) {
-		gpio_set_value(led_gpio, level == LED_MIN_LEVEL ? LOW : HIGH);
-		schedule_work(work);
-		return;
-	}
+	led_brightness = 100 * level / led_max_level * 32 / 100;
 
-	led_gpio_value = gpio_get_value(led_gpio);
-	if (led_gpio_value == LOW) {
-		required_delay = pulse_frequency -
-				(pulse_frequency * level / led_max_level);
-	} else {
-		required_delay = pulse_frequency * level / led_max_level;
-	}
-
-	if (nanos_since_led_switch >= required_delay) {
-		gpio_set_value(led_gpio, !led_gpio_value);
-		prev_led_switch = now;
-	}
+	iowrite32(led_brightness, pwm_base + PWM_DAT1_OFFSET);
 
 	schedule_work(work);
 }
