@@ -4,8 +4,6 @@
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/time64.h>
-#include <linux/hrtimer.h>
-#include <linux/ktime.h>
 
 #define MODULE_NAME "pwm_led_module"
 
@@ -16,8 +14,8 @@
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
 #define LED_MIN_LEVEL 0
-#define LED_MAX_LEVEL 2
-#define PULSE_FREQUENCY_DEFAULT (HZ / 100)
+#define LED_MAX_LEVEL 5
+#define PULSE_FREQUENCY_DEFAULT 100000 /* nanoseconds */
 #define LOW 0
 #define HIGH 1
 
@@ -52,32 +50,24 @@ static int setup_pwm_led_irqs(void);
 static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
 static void led_level_func(struct work_struct *work);
-static void turn_led_on_func(struct work_struct *work);
-static void turn_led_off_func(struct work_struct *work);
-
+static void led_ctrl_func(struct work_struct *work);
 static void increase_led_brightness(void);
 static void decrease_led_brightness(void);
 static void do_nothing(void) { }
 static void update_led_state(void);
 
-static enum hrtimer_restart frequency_func(struct hrtimer *hrtimer);
-static enum hrtimer_restart duty_func(struct hrtimer *hrtimer);
-
 /*
  * Data
  */
 static int down_button_irq, up_button_irq;
-static struct timespec64 prev_down_button_irq, prev_up_button_irq;
+static struct timespec64 prev_down_button_irq, prev_up_button_irq, prev_led_switch;
 
 static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
 static enum led_state led_state = OFF;
 static enum event led_event = NONE;
-static struct hrtimer frequency_timer, duty_timer;
-static ktime_t frequency_delay;
 
 static DECLARE_WORK(led_level_work, led_level_func);
-static DECLARE_WORK(turn_led_on_work, turn_led_on_func);
-static DECLARE_WORK(turn_led_off_work, turn_led_off_func);
+static DECLARE_WORK(led_switch_work, led_ctrl_func);
 
 static void (*fsm_functions[NUM_STATES][NUM_EVENTS])(void) = {
 	{ do_nothing, increase_led_brightness, do_nothing },
@@ -103,7 +93,7 @@ MODULE_PARM_DESC(led_gpio,
 static int pulse_frequency = PULSE_FREQUENCY_DEFAULT;
 module_param(pulse_frequency, int, S_IRUGO);
 MODULE_PARM_DESC(pulse_frequency,
-		"The frequency at which the RPi sends a LOW signal (default = 100 HZ)");
+		"Frequency in nanoseconds of PWM (default = 1000).");
 
 static int __init pwm_led_init(void)
 {
@@ -118,17 +108,11 @@ static int __init pwm_led_init(void)
 	if (ret)
 		goto irq_err;
 
-	hrtimer_init(&frequency_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	frequency_timer.function = frequency_func;
-	hrtimer_start(&frequency_timer, ktime_set(0, 0), HRTIMER_MODE_REL);
-
-	hrtimer_init(&duty_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	duty_timer.function = duty_func;
-	hrtimer_start(&duty_timer, ktime_set(0, 0), HRTIMER_MODE_REL);
-
 	getnstimeofday64(&prev_down_button_irq);
 	getnstimeofday64(&prev_up_button_irq);
+	getnstimeofday64(&prev_led_switch);
 
+	schedule_work(&led_switch_work);
 	pr_info("%s: PWM LED module loaded\n", MODULE_NAME);
 
 	goto out;
@@ -141,11 +125,8 @@ out:
 
 static void __exit pwm_led_exit(void)
 {
-	hrtimer_cancel(&frequency_timer);
-	hrtimer_cancel(&duty_timer);
 	cancel_work_sync(&led_level_work);
-	cancel_work_sync(&turn_led_off_work);
-	cancel_work_sync(&turn_led_on_work);
+	cancel_work_sync(&led_switch_work);
 	free_irq(down_button_irq, NULL);
 	free_irq(up_button_irq, NULL);
 	unset_pwm_led_gpios();
@@ -286,7 +267,6 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 		prev_down_button_irq = now;
 		led_event = DOWN;
-		pr_info("Down button pressed\n");
 	} else if (irq == up_button_irq) {
 		interval = timespec64_sub(now, prev_up_button_irq);
 		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
@@ -296,7 +276,6 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 		prev_up_button_irq = now;
 		led_event = UP;
-		pr_info("Up button pressed\n");
 	}
 
 	schedule_work(&led_level_work);
@@ -305,11 +284,15 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 static void led_level_func(struct work_struct *work)
 {
+	int led_brightness_percent;
+
 	fsm_functions[led_state][led_event]();
 	update_led_state();
 
-	pr_info("led level after: %d\n", atomic_read(&led_level));
-	gpio_set_value(led_gpio, atomic_read(&led_level) == 0 ? 0 : 1);
+	led_brightness_percent = 100 * atomic_read(&led_level) / LED_MAX_LEVEL;
+	pr_info("%s: LED brightness %d%%\n",
+		MODULE_NAME,
+		led_brightness_percent);
 }
 
 static void update_led_state(void)
@@ -340,50 +323,35 @@ static void decrease_led_brightness(void)
 	atomic_dec(&led_level);
 }
 
-static enum hrtimer_restart frequency_func(struct hrtimer *hrtimer)
+static void led_ctrl_func(struct work_struct *work)
 {
-	ktime_t duty_cycle_delay;
-	int duty_cycle_percent, duty_cycle_ms, level;
+	int required_delay, nanos_since_led_switch, led_gpio_value, level;
+	struct timespec64 now, diff;
 
-	frequency_delay = ktime_set(pulse_frequency / MSEC_PER_SEC,
-					pulse_frequency * NSEC_PER_MSEC);
-
-	schedule_work(&turn_led_off_work);
+	getnstimeofday64(&now);
+	diff = timespec64_sub(now, prev_led_switch);
+	nanos_since_led_switch = (diff.tv_sec * USEC_PER_SEC) + diff.tv_nsec;
 
 	level = atomic_read(&led_level);
-	if (level != 0) {
-		duty_cycle_percent = pulse_frequency * level / LED_MAX_LEVEL;
-		duty_cycle_ms = (pulse_frequency - duty_cycle_percent) / pulse_frequency;
-		duty_cycle_delay = ktime_set(duty_cycle_ms / MSEC_PER_SEC,
-					duty_cycle_ms * NSEC_PER_MSEC);
-		hrtimer_forward_now(&duty_timer, duty_cycle_delay);
-		hrtimer_restart(&duty_timer);
+	if (level == LED_MIN_LEVEL || level == LED_MAX_LEVEL) {
+		gpio_set_value(led_gpio, level == LED_MIN_LEVEL ? 0 : 1);
+		schedule_work(work);
+		return;
 	}
 
-	hrtimer_forward_now(hrtimer, frequency_delay);
-	return HRTIMER_RESTART;
-}
-
-static enum hrtimer_restart duty_func(struct hrtimer *hrtimer)
-{
-	int level;
-
-	level = atomic_read(&led_level);
-	if (level > 0) {
-		schedule_work(&turn_led_on_work);
+	led_gpio_value = gpio_get_value(led_gpio);
+	if (led_gpio_value == LOW) {
+		required_delay = pulse_frequency - (pulse_frequency * level / LED_MAX_LEVEL);
+	} else {
+		required_delay = pulse_frequency * level / LED_MAX_LEVEL;
 	}
 
-	return HRTIMER_NORESTART;
-}
+	if (nanos_since_led_switch >= required_delay) {
+		gpio_set_value(led_gpio, !led_gpio_value);
+		prev_led_switch = now;
+	}
 
-static void turn_led_on_func(struct work_struct *work)
-{
-	gpio_set_value(led_gpio, HIGH);
-}
-
-static void turn_led_off_func(struct work_struct *work)
-{
-	gpio_set_value(led_gpio, LOW);
+	schedule_work(work);
 }
 
 module_init(pwm_led_init);
