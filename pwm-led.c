@@ -14,7 +14,7 @@
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
 #define LED_MIN_LEVEL 0
-#define LED_MAX_LEVEL 5
+#define LED_MAX_LEVEL_DEFAULT 5
 #define PULSE_FREQUENCY_DEFAULT 100000 /* nanoseconds */
 #define LOW 0
 #define HIGH 1
@@ -94,6 +94,11 @@ static int pulse_frequency = PULSE_FREQUENCY_DEFAULT;
 module_param(pulse_frequency, int, S_IRUGO);
 MODULE_PARM_DESC(pulse_frequency,
 		"Frequency in nanoseconds of PWM (default = 100 000).");
+
+static int led_max_level = LED_MAX_LEVEL_DEFAULT;
+module_param(led_max_level, int, S_IRUGO);
+MODULE_PARM_DESC(led_max_level,
+		"Maximum brightness level of the LED (default = 5).");
 
 static int __init pwm_led_init(void)
 {
@@ -285,15 +290,17 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 static void led_level_func(struct work_struct *work)
 {
-	int led_brightness_percent;
+	int level, led_brightness_percent;
 
 	fsm_functions[led_state][led_event]();
 	update_led_state();
 
-	led_brightness_percent = 100 * atomic_read(&led_level) / LED_MAX_LEVEL;
-	pr_info("%s: LED brightness %d%%\n",
+	level = atomic_read(&led_level);
+	led_brightness_percent = 100 * level / led_max_level;
+	pr_info("%s: LED brightness %d%% (level %d)\n",
 		MODULE_NAME,
-		led_brightness_percent);
+		led_brightness_percent,
+		level);
 }
 
 static void update_led_state(void)
@@ -301,16 +308,12 @@ static void update_led_state(void)
 	int level;
 
 	level = atomic_read(&led_level);
-	switch(level) {
-	case LED_MAX_LEVEL:
+	if (level == led_max_level) {
 		led_state = MAX;
-		break;
-	case LED_MIN_LEVEL:
+	} else if (level == LED_MIN_LEVEL) {
 		led_state = OFF;
-		break;
-	default:
+	} else {
 		led_state = ON;
-		break;
 	}
 }
 
@@ -334,7 +337,7 @@ static void led_ctrl_func(struct work_struct *work)
 	nanos_since_led_switch = (diff.tv_sec * USEC_PER_SEC) + diff.tv_nsec;
 
 	level = atomic_read(&led_level);
-	if (level == LED_MIN_LEVEL || level == LED_MAX_LEVEL) {
+	if (level == LED_MIN_LEVEL || level == led_max_level) {
 		gpio_set_value(led_gpio, level == LED_MIN_LEVEL ? LOW : HIGH);
 		schedule_work(work);
 		return;
@@ -343,9 +346,9 @@ static void led_ctrl_func(struct work_struct *work)
 	led_gpio_value = gpio_get_value(led_gpio);
 	if (led_gpio_value == LOW) {
 		required_delay = pulse_frequency -
-				(pulse_frequency * level / LED_MAX_LEVEL);
+				(pulse_frequency * level / led_max_level);
 	} else {
-		required_delay = pulse_frequency * level / LED_MAX_LEVEL;
+		required_delay = pulse_frequency * level / led_max_level;
 	}
 
 	if (nanos_since_led_switch >= required_delay) {
