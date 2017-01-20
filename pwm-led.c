@@ -141,6 +141,11 @@ out:
 
 static void __exit pwm_led_exit(void)
 {
+	hrtimer_cancel(&frequency_timer);
+	hrtimer_cancel(&duty_timer);
+	cancel_work_sync(&led_level_work);
+	cancel_work_sync(&turn_led_off_work);
+	cancel_work_sync(&turn_led_on_work);
 	free_irq(down_button_irq, NULL);
 	free_irq(up_button_irq, NULL);
 	unset_pwm_led_gpios();
