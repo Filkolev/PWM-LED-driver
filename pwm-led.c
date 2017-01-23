@@ -9,7 +9,7 @@
 
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
-#define LED_GPIO 18
+#define LED_GPIO 12
 
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
@@ -88,7 +88,7 @@ MODULE_PARM_DESC(up_button_gpio,
 static int led_gpio = LED_GPIO;
 module_param(led_gpio, int, S_IRUGO);
 MODULE_PARM_DESC(led_gpio,
-		"The GPIO where the LED is connected (default = 18).");
+		"The GPIO where the LED is connected (default = 12).");
 
 static int pulse_frequency = PULSE_FREQUENCY_DEFAULT;
 module_param(pulse_frequency, int, S_IRUGO);
