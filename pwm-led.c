@@ -432,7 +432,7 @@ static void led_ctrl_func(struct work_struct *work)
 	int level, led_brightness;
 
 	level = atomic_read(&led_level);
-	led_brightness = 100 * level / led_max_level * 32 / 100;
+	led_brightness = 32 * level / led_max_level;
 
 	iowrite32(led_brightness, pwm_base + PWM_DAT1_OFFSET);
 
