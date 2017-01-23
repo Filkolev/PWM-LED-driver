@@ -30,6 +30,11 @@
 #define LOW 0
 #define HIGH 1
 
+#define LED_BRIGHTNESS_RANGE 32
+#define REGISTER_WIDTH 4 /* bytes */
+#define NUM_BITS_PER_GPIO_GPFSEL 3
+#define NUM_GPIOS_GPFSEL 10
+
 enum direction {
 	INPUT,
 	OUTPUT
@@ -162,8 +167,8 @@ static int __init pwm_led_init(void)
 	getnstimeofday64(&prev_up_button_irq);
 	getnstimeofday64(&prev_led_switch);
 
-	func_select_reg_offset = 4 * (led_gpio / 10);
-	func_select_bit_offset = (led_gpio % 10) * 3;
+	func_select_reg_offset = REGISTER_WIDTH * (led_gpio / NUM_GPIOS_GPFSEL);
+	func_select_bit_offset = (led_gpio % NUM_GPIOS_GPFSEL) * NUM_BITS_PER_GPIO_GPFSEL;
 	save_gpio_func_select();
 	gpio_select_func(led_gpio, ALT_FUNC_0);
 
@@ -344,46 +349,51 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 static void activate_pwm_channel(void)
 {
-	int pwm_ctl_value;
+	int pwm_ctl_value, mask;
 
+	mask = 1;
 	pwm_ctl_value = ioread32(pwm_base + PWM_CTL_OFFSET);
-	pwm_ctl_value |= 1;
+	pwm_ctl_value |= mask;
 	iowrite32(pwm_ctl_value, pwm_base + PWM_CTL_OFFSET);
 }
 
 static void deactivate_pwm_channel(void)
 {
-	int pwm_ctl_value;
+	int pwm_ctl_value, mask;
 
+	mask = 1;
 	pwm_ctl_value = ioread32(pwm_base + PWM_CTL_OFFSET);
-	pwm_ctl_value &= ~1;
+	pwm_ctl_value &= ~mask;
 	iowrite32(pwm_ctl_value, pwm_base + PWM_CTL_OFFSET);
 }
 
 static void save_gpio_func_select(void)
 {
-	int val;
+	int val, mask;
 
+	mask = 7;
 	val = ioread32(gpio_base + func_select_reg_offset);
-	func_select_initial_val = (val >> func_select_bit_offset) & 7;
+	func_select_initial_val = (val >> func_select_bit_offset) & mask;
 }
 
 static void restore_gpio_func_select(void)
 {
-	int val;
+	int val, mask;
 
+	mask = 7;
 	val = ioread32(gpio_base + func_select_reg_offset);
-	val &= ~(7 << func_select_bit_offset);
+	val &= ~(mask << func_select_bit_offset);
 	val |= func_select_initial_val << func_select_bit_offset;
 	iowrite32(val, gpio_base + func_select_reg_offset);
 }
 
 static void gpio_select_func(int gpio, int new_value)
 {
-	int val;
+	int val, mask;
 
+	mask = 7;
 	val = ioread32(gpio_base + func_select_reg_offset);
-	val &= ~(7 << func_select_bit_offset);
+	val &= ~(mask << func_select_bit_offset);
 	val |= new_value << func_select_bit_offset;
 	iowrite32(val, gpio_base + func_select_reg_offset);
 }
@@ -432,7 +442,7 @@ static void led_ctrl_func(struct work_struct *work)
 	int level, led_brightness;
 
 	level = atomic_read(&led_level);
-	led_brightness = 32 * level / led_max_level;
+	led_brightness = LED_BRIGHTNESS_RANGE * level / led_max_level;
 
 	iowrite32(led_brightness, pwm_base + PWM_DAT1_OFFSET);
 
