@@ -9,7 +9,7 @@
 
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
-#define LED_GPIO 12
+#define LED_GPIO 18
 
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
@@ -59,10 +59,15 @@ static void update_led_state(void);
 /*
  * Data
  */
-static int down_button_irq, up_button_irq;
-static struct timespec64 prev_down_button_irq, prev_up_button_irq, prev_led_switch;
+static int down_button_irq;
+static int up_button_irq;
+
+static struct timespec64 prev_down_button_irq;
+static struct timespec64 prev_up_button_irq;
+static struct timespec64 prev_led_switch;
 
 static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
+
 static enum led_state led_state = OFF;
 static enum event led_event = NONE;
 
@@ -88,7 +93,7 @@ MODULE_PARM_DESC(up_button_gpio,
 static int led_gpio = LED_GPIO;
 module_param(led_gpio, int, S_IRUGO);
 MODULE_PARM_DESC(led_gpio,
-		"The GPIO where the LED is connected (default = 12).");
+		"The GPIO where the LED is connected (default = 18).");
 
 static int pulse_frequency = PULSE_FREQUENCY_DEFAULT;
 module_param(pulse_frequency, int, S_IRUGO);
@@ -131,8 +136,10 @@ static void __exit pwm_led_exit(void)
 {
 	cancel_work_sync(&led_level_work);
 	cancel_work_sync(&led_switch_work);
+
 	free_irq(down_button_irq, NULL);
 	free_irq(up_button_irq, NULL);
+
 	unset_pwm_led_gpios();
 
 	pr_info("%s: PWM LED module unloaded\n", MODULE_NAME);
@@ -189,19 +196,13 @@ setup_pwm_led_gpio(int gpio, const char *target, enum direction direction)
 		gpio_direction_output(gpio, LOW);
 	}
 
-	gpio_export(gpio, true);
-
 	return ret;
 }
 
 static void unset_pwm_led_gpios(void)
 {
-
-	gpio_unexport(down_button_gpio);
 	gpio_free(down_button_gpio);
-	gpio_unexport(up_button_gpio);
 	gpio_free(up_button_gpio);
-	gpio_unexport(led_gpio);
 	gpio_free(led_gpio);
 }
 
@@ -297,6 +298,7 @@ static void led_level_func(struct work_struct *work)
 
 	level = atomic_read(&led_level);
 	led_brightness_percent = 100 * level / led_max_level;
+
 	pr_info("%s: LED brightness %d%% (level %d)\n",
 		MODULE_NAME,
 		led_brightness_percent,
