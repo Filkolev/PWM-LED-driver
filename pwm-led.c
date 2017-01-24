@@ -16,6 +16,7 @@
 #define LED_MIN_LEVEL 0
 #define LED_MAX_LEVEL_DEFAULT 5
 #define PULSE_FREQUENCY_DEFAULT 100000 /* nanoseconds */
+
 #define LOW 0
 #define HIGH 1
 
@@ -83,6 +84,9 @@ static void (*fsm_functions[NUM_STATES][NUM_EVENTS])(void) = {
 	{ do_nothing, do_nothing, decrease_led_brightness }
 };
 
+/*
+ * Module parameters
+ */
 static int down_button_gpio = DOWN_BUTTON_GPIO;
 module_param(down_button_gpio, int, S_IRUGO);
 MODULE_PARM_DESC(down_button_gpio,
