@@ -126,7 +126,6 @@ static int up_button_irq;
 
 static struct timespec64 prev_down_button_irq;
 static struct timespec64 prev_up_button_irq;
-static struct timespec64 prev_led_switch;
 
 static atomic_t led_level = ATOMIC_INIT(LED_MIN_LEVEL);
 
@@ -208,7 +207,6 @@ static int __init pwm_led_init(void)
 
 	getnstimeofday64(&prev_down_button_irq);
 	getnstimeofday64(&prev_up_button_irq);
-	getnstimeofday64(&prev_led_switch);
 
 	dump_pwm_registers();
 
