@@ -321,10 +321,10 @@ static void update_led_state(void)
 	int level;
 
 	level = atomic_read(&led_level);
-	if (level == led_max_level) {
-		led_state = MAX;
-	} else if (level == LED_MIN_LEVEL) {
+	if (level == LED_MIN_LEVEL) {
 		led_state = OFF;
+	} else if (level == led_max_level) {
+		led_state = MAX;
 	} else {
 		led_state = ON;
 	}
