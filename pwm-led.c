@@ -49,12 +49,15 @@ static void unset_pwm_led_gpios(void);
 static int setup_pwm_led_irqs(void);
 static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
+
 static void led_level_func(struct work_struct *work);
 static void led_ctrl_func(struct work_struct *work);
+
 static void increase_led_brightness(void);
 static void decrease_led_brightness(void);
 static void do_nothing(void) { }
 static void update_led_state(void);
+static void validate_led_max_level(void);
 
 /*
  * Data
@@ -109,6 +112,8 @@ static int __init pwm_led_init(void)
 {
 	int ret;
 
+	validate_led_max_level();
+
 	ret = setup_pwm_led_gpios();
 	if (ret)
 		goto out;
@@ -143,6 +148,12 @@ static void __exit pwm_led_exit(void)
 	unset_pwm_led_gpios();
 
 	pr_info("%s: PWM LED module unloaded\n", MODULE_NAME);
+}
+
+static void validate_led_max_level(void)
+{
+       if (led_max_level < LED_MIN_LEVEL)
+               led_max_level = LED_MIN_LEVEL;
 }
 
 static int setup_pwm_led_gpios(void)
