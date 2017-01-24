@@ -30,11 +30,12 @@
 #define PWM_CLK_DIV_OFFSET 0x4
 #define PWM_CLK_REGION_SIZE 0x8
 #define PWM_CLK_PASSWORD 0x5a000000
-#define DIVI_BITS_POS 12
-#define DIVF_BITS_POS 0
 #define CLK_KILL (1 << 5)
 #define CLK_ENABLE (1 << 4)
-#define SRC_OSCILLATOR (1 << 0)
+#define CLK_SRC_OSCILLATOR (1 << 0)
+
+#define DIVI_BITS_POS 12
+#define DIVF_BITS_POS 0
 #define DIVI_DEFAULT 35
 #define DIVF_DEFAULT 0
 
@@ -42,13 +43,15 @@
 
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
-#define LED_GPIO 18
+#define LED_GPIO 18 /* Fixed for hardware PWM */
 
 #define BUTTON_DEBOUNCE 200 /* milliseconds */
 
 #define LED_MIN_LEVEL 0
 #define LED_MAX_LEVEL_DEFAULT 5
+
 #define LOW 0
+#define HIGH 1
 
 #define LED_BRIGHTNESS_RANGE 32
 #define REGISTER_WIDTH 4 /* bytes */
@@ -448,7 +451,7 @@ static void enable_pwm_clock(void)
 {
 	int clk_ctrl_mask;
 
-	clk_ctrl_mask = PWM_CLK_PASSWORD | CLK_ENABLE | SRC_OSCILLATOR;
+	clk_ctrl_mask = PWM_CLK_PASSWORD | CLK_ENABLE | CLK_SRC_OSCILLATOR;
 	iowrite32(clk_ctrl_mask, pwm_clk);
 }
 
