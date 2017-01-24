@@ -252,6 +252,9 @@ static void validate_led_max_level(void)
 {
 	if (led_max_level < LED_MIN_LEVEL)
 		led_max_level = LED_MIN_LEVEL;
+
+	if (led_max_level > LED_BRIGHTNESS_RANGE)
+		led_max_level = LED_BRIGHTNESS_RANGE;
 }
 
 static int setup_pwm_led_gpios(void)
