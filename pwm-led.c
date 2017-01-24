@@ -48,9 +48,7 @@
 
 #define LED_MIN_LEVEL 0
 #define LED_MAX_LEVEL_DEFAULT 5
-#define PULSE_FREQUENCY_DEFAULT 100000 /* nanoseconds */
 #define LOW 0
-#define HIGH 1
 
 #define LED_BRIGHTNESS_RANGE 32
 #define REGISTER_WIDTH 4 /* bytes */
