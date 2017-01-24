@@ -37,7 +37,7 @@ The module can be unloaded using this command (as root): `rmmod pwm-led`
 * `down_button_gpio` and `up_button_gpio` represent the GPIOs where the
 buttons are connected. GPIO numbers are given per the
 [BCM numbering scheme](https://pinout.xyz/#).  
-**NB** Note that the Raspberry Pi 3 (as far as I was able to determine from
+**NB:** Note that the Raspberry Pi 3 (as far as I was able to determine from
 Internet sources) only allows PWM on GPIO 18, therefore the LED **must be
 connected there** and placing it anywhere else will not work.
 
@@ -49,13 +49,100 @@ Default is 5 (meaning a step of 20%), maximum is 32.
 
 ## Physical Addresses of the PWM and PWM clocks
 
-### PWM Addresses
+Note: The PWM is relatively slow. This is the reason why it's a good idea to
+wait a little bit after writing to PWM registers. The driver uses a short delay
+of 10 us after every read or write operation.
 
-### PWM Clock Addresses
+### PWM Registers
+
+Extensive information about the PWM peripheral on the Raspberry is available in
+the
+[BCM2835 ARM Peripherals](https://www.raspberrypi.org/wp-content/uploads/2012/02/BCM2835-ARM-Peripherals.pdf#page=138)
+document.
+
+The most important detail which is missing from the document is the base address
+of the PWM - it is at offset 0x20c000 from the peripherals' base address.
+
+#### CTL
+
+This is the control register for the PWM device. The only bit that is useful is
+bit 0, PWEN1 (enable PWM channel 1); all other bits can be left with their
+default values. Details are on pages
+[142-143](https://www.raspberrypi.org/wp-content/uploads/2012/02/BCM2835-ARM-Peripherals.pdf#page=142).
+
+#### STA
+
+This is the PWM status register. It can be used to check whether an error has
+occured. When channel 1 of the PWM is activated with FIFO disabled (as this
+driver does) the expected value of the register is 514 - high bits 2 (EMPT1,
+FIFO empty) and 9 (STA1, channel 1 state).
+
+Occasionally bit 8 (BERR, bus error) will be high as well. Empirically, this
+does not seem to have a negative effect and the driver keeps working as
+expected.
+
+#### RNG1
+
+The value in this register is used as the range of PWM channel 1. It is left at
+its default value of 32. This means that, effectively, the driver will only be
+able to differenciate 33 brightness levels (0 - 32); the maximum led level is
+therefore capped at 32.
+
+#### DAT1
+
+The value in this register is sent to the device using the PWM algorithm
+explained in the BCM document. Values should be between 0 and 32, higher values
+mean higher brightness levels. E.g. writing 16 here will turn the LED on with
+50% brightness.
+
+### PWM Clock Registers
+
+In order to use the PWM peripheral it is also necessary to setup the PWM clocks
+appropriately.
+
+Two registers are available - clock control and clock divisors.
+
+The offset of the PWM clock control from the peripherals' base is 0x1010a0. Many
+online sources cite offset 0x101028 which is not correct for the Pi 3.  
+The clock divisor is at offset 0x1010a4.
+
+The BCM peripherals document does not contain information about these clock
+registers, however, they are analogous to the GPIO Clocks described in
+[Section 6.3, page 105](https://www.raspberrypi.org/wp-content/uploads/2012/02/BCM2835-ARM-Peripherals.pdf#page=105).
+
+#### CTL
+
+Every command written to the CTL register should include the password, 0x5a, at
+bits 24-31.
+
+Bit 5, KILL, is used to kill the clock - this is done initially before
+re-enabling it.
+
+When the clock is enabled, a 1 is written to bits 0-3 (to select the oscillator
+as clock source) and bit 4 (ENAB) is set high.
+
+#### DIV
+
+Every command written to the DIV register should include the password, 0x5a, at
+bits 24-31.
+
+The integer and fractional part of the divisor are sent in bits 12-23 and 0-11
+respectively.
 
 ## Implementation Details
 
 ### PWM Setup
+
+With the information outlined in the previous section, setting up the PWM boils
+down to the following steps:
+
+* Reset the PWM clock registers
+* Kill the clock (apparently necessary before enabling it)
+* Set the DIV register
+* Enable the clock through the CTL register
+* Set the function of GPIO 18 to ALT5 (PWM0)
+* Activate PWM channel 1 using the PWM CTL register as described above
+* Write the appropriate value in DAT1 to control the LED brightness
 
 ### Interrupt Handler and Finite-State Machine
 
