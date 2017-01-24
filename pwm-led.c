@@ -38,7 +38,7 @@
 #define DIVI_DEFAULT 35
 #define DIVF_DEFAULT 0
 
-#define ALT_FUNC_5 (1 << 1)
+#define ALT_FUNC_5 2
 
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
@@ -83,6 +83,7 @@ static int
 setup_pwm_led_gpio(int gpio, const char *target, enum direction direction);
 
 static void unset_pwm_led_gpios(void);
+
 static int setup_pwm_led_irqs(void);
 static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
@@ -94,13 +95,14 @@ static void increase_led_brightness(void);
 static void decrease_led_brightness(void);
 static void do_nothing(void) { }
 static void update_led_state(void);
+static void validate_led_max_level(void);
 
 static void activate_pwm_channel(void);
 static void deactivate_pwm_channel(void);
 
 static void save_gpio_func_select(void);
 static void restore_gpio_func_select(void);
-static void gpio_select_function(int gpio, int new_value);
+static void gpio_select_function(int gpio, int function_number);
 
 static void dump_pwm_registers(void);
 
@@ -158,11 +160,6 @@ module_param(up_button_gpio, int, S_IRUGO);
 MODULE_PARM_DESC(up_button_gpio,
 		"The GPIO where the up button is connected (default = 24).");
 
-static int led_gpio = LED_GPIO;
-module_param(led_gpio, int, S_IRUGO);
-MODULE_PARM_DESC(led_gpio,
-		"The GPIO where the LED is connected (default = 18).");
-
 static int led_max_level = LED_MAX_LEVEL_DEFAULT;
 module_param(led_max_level, int, S_IRUGO);
 MODULE_PARM_DESC(led_max_level,
@@ -171,6 +168,8 @@ MODULE_PARM_DESC(led_max_level,
 static int __init pwm_led_init(void)
 {
 	int ret;
+
+	validate_led_max_level();
 
 	ret = setup_pwm_led_gpios();
 	if (ret)
@@ -194,12 +193,12 @@ static int __init pwm_led_init(void)
 	enable_pwm_clock();
 	short_wait();
 
-	func_select_reg_offset = REGISTER_WIDTH * (led_gpio / NUM_GPIOS_GPFSEL);
-	func_select_bit_offset = (led_gpio % NUM_GPIOS_GPFSEL) *
+	func_select_reg_offset = REGISTER_WIDTH * (LED_GPIO / NUM_GPIOS_GPFSEL);
+	func_select_bit_offset = (LED_GPIO % NUM_GPIOS_GPFSEL) *
 				NUM_BITS_PER_GPIO_GPFSEL;
 
 	save_gpio_func_select();
-	gpio_select_function(led_gpio, ALT_FUNC_5);
+	gpio_select_function(LED_GPIO, ALT_FUNC_5);
 
 	activate_pwm_channel();
 	short_wait();
@@ -246,6 +245,12 @@ static void __exit pwm_led_exit(void)
 	unset_pwm_led_gpios();
 
 	pr_info("%s: PWM LED module unloaded\n", MODULE_NAME);
+}
+
+static void validate_led_max_level(void)
+{
+	if (led_max_level < LED_MIN_LEVEL)
+		led_max_level = LED_MIN_LEVEL;
 }
 
 static int setup_pwm_led_gpios(void)
@@ -300,10 +305,9 @@ setup_pwm_led_gpio(int gpio, const char *target, enum direction direction)
 
 static void unset_pwm_led_gpios(void)
 {
-
 	gpio_free(down_button_gpio);
 	gpio_free(up_button_gpio);
-	gpio_free(led_gpio);
+	gpio_free(LED_GPIO);
 }
 
 static int setup_pwm_led_irqs(void)
@@ -506,14 +510,14 @@ static void restore_gpio_func_select(void)
 	iowrite32(val, gpio_base + func_select_reg_offset);
 }
 
-static void gpio_select_function(int gpio, int new_value)
+static void gpio_select_function(int gpio, int function_number)
 {
 	int val, mask;
 
 	mask = 7;
 	val = ioread32(gpio_base + func_select_reg_offset);
 	val &= ~(mask << func_select_bit_offset);
-	val |= new_value << func_select_bit_offset;
+	val |= function_number << func_select_bit_offset;
 	iowrite32(val, gpio_base + func_select_reg_offset);
 }
 
