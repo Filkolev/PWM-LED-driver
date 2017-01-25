@@ -39,8 +39,6 @@
 #define DIVI_DEFAULT 35
 #define DIVF_DEFAULT 0
 
-#define ALT_FUNC_5 2
-
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
 #define LED_GPIO 18 /* Fixed for hardware PWM */
@@ -78,6 +76,18 @@ enum led_state {
 	NUM_STATES
 };
 
+enum gpio_function {
+	INPUT_FUNC = 0,
+	OUTPUT_FUNC,
+	ALT_FUNC_5,
+	ALT_FUNC_4,
+	ALT_FUNC_0,
+	ALT_FUNC_1,
+	ALT_FUNC_2,
+	ALT_FUNC_3,
+	NUM_FUNCS
+};
+
 /*
  * Function prototypes
  */
@@ -106,7 +116,7 @@ static void deactivate_pwm_channel(void);
 
 static void save_gpio_func_select(void);
 static void restore_gpio_func_select(void);
-static void gpio_select_function(int gpio, int function_number);
+static int gpio_select_function(int gpio, enum gpio_function function);
 
 static void dump_pwm_registers(void);
 
@@ -193,7 +203,9 @@ static int __init pwm_led_init(void)
 				NUM_BITS_PER_GPIO_GPFSEL;
 
 	save_gpio_func_select();
-	gpio_select_function(LED_GPIO, ALT_FUNC_5);
+	ret = gpio_select_function(LED_GPIO, ALT_FUNC_5);
+	if (ret)
+		goto gpio_setup_err;
 
 	activate_pwm_channel();
 	short_wait();
@@ -208,6 +220,12 @@ static int __init pwm_led_init(void)
 
 	goto out;
 
+gpio_setup_err:
+	restore_gpio_func_select();
+	reset_pwm_clocks();
+	iounmap(pwm_base);
+	iounmap(gpio_base);
+	iounmap(pwm_clk);
 iomap_err:
 	free_irq(down_button_irq, NULL);
 	free_irq(up_button_irq, NULL);
@@ -520,15 +538,26 @@ static void restore_gpio_func_select(void)
 	iowrite32(val, gpio_base + func_select_reg_offset);
 }
 
-static void gpio_select_function(int gpio, int function_number)
+static int gpio_select_function(int gpio, enum gpio_function function)
 {
 	int val, mask;
+
+	if (function < 0 || NUM_FUNCS <= function) {
+		pr_err("%s: %s: Invalid function selected for GPIO %d\n",
+			MODULE_NAME,
+			__func__,
+			gpio);
+
+		return -EINVAL;
+	}
 
 	mask = 7;
 	val = ioread32(gpio_base + func_select_reg_offset);
 	val &= ~(mask << func_select_bit_offset);
-	val |= function_number << func_select_bit_offset;
+	val |= function << func_select_bit_offset;
 	iowrite32(val, gpio_base + func_select_reg_offset);
+
+	return 0;
 }
 
 static void led_level_func(struct work_struct *work)
