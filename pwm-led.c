@@ -101,8 +101,8 @@ static int setup_pwm_led_irqs(void);
 static int setup_pwm_led_irq(int gpio, int *irq);
 static irqreturn_t button_irq_handler(int irq, void *data);
 
-static void led_level_func(struct work_struct *work);
-static void led_ctrl_func(struct work_struct *work);
+static void led_level_change_func(struct work_struct *work);
+static void led_set_brightness_func(struct work_struct *work);
 
 static void increase_led_brightness(void);
 static void decrease_led_brightness(void);
@@ -151,8 +151,8 @@ static void __iomem *gpio_base;
 static void __iomem *pwm_base;
 static void __iomem *pwm_clk;
 
-static DECLARE_WORK(led_level_work, led_level_func);
-static DECLARE_WORK(led_switch_work, led_ctrl_func);
+static DECLARE_WORK(led_level_change_work, led_level_change_func);
+static DECLARE_WORK(led_set_brightness_work, led_set_brightness_func);
 
 static void (*fsm_functions[NUM_STATES][NUM_EVENTS])(void) = {
 	{ do_nothing, increase_led_brightness, do_nothing },
@@ -215,7 +215,7 @@ static int __init pwm_led_init(void)
 
 	dump_pwm_registers();
 
-	schedule_work(&led_switch_work);
+	schedule_work(&led_set_brightness_work);
 	pr_info("%s: PWM LED module loaded\n", MODULE_NAME);
 
 	goto out;
@@ -237,8 +237,8 @@ out:
 
 static void __exit pwm_led_exit(void)
 {
-	cancel_work_sync(&led_level_work);
-	cancel_work_sync(&led_switch_work);
+	cancel_work_sync(&led_level_change_work);
+	cancel_work_sync(&led_set_brightness_work);
 
 	restore_gpio_func_select();
 
@@ -404,7 +404,7 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 		led_event = UP;
 	}
 
-	schedule_work(&led_level_work);
+	schedule_work(&led_level_change_work);
 	return IRQ_HANDLED;
 }
 
@@ -560,7 +560,7 @@ static int gpio_select_function(int gpio, enum gpio_function function)
 	return 0;
 }
 
-static void led_level_func(struct work_struct *work)
+static void led_level_change_func(struct work_struct *work)
 {
 	int level, led_brightness_percent;
 
@@ -600,7 +600,7 @@ static void decrease_led_brightness(void)
 	atomic_dec(&led_level);
 }
 
-static void led_ctrl_func(struct work_struct *work)
+static void led_set_brightness_func(struct work_struct *work)
 {
 	int level, led_brightness;
 
