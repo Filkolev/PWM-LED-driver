@@ -382,22 +382,25 @@ static irqreturn_t button_irq_handler(int irq, void *data)
 
 	if (irq == down_button_irq) {
 		interval = timespec64_sub(now, prev_down_button_irq);
-		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
-					(interval.tv_nsec / NSEC_PER_MSEC);
+	} else if (irq == up_button_irq) {
+		interval = timespec64_sub(now, prev_up_button_irq);
+	} else {
+		led_event = NONE;
+		return IRQ_HANDLED;
+	}
 
-		if (millis_since_last_irq < BUTTON_DEBOUNCE)
-			return IRQ_HANDLED;
+	millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
+				(interval.tv_nsec / NSEC_PER_MSEC);
 
+	if (millis_since_last_irq < BUTTON_DEBOUNCE) {
+		led_event = NONE;
+		return IRQ_HANDLED;
+	}
+
+	if (irq == down_button_irq) {
 		prev_down_button_irq = now;
 		led_event = DOWN;
 	} else if (irq == up_button_irq) {
-		interval = timespec64_sub(now, prev_up_button_irq);
-		millis_since_last_irq = ((long)interval.tv_sec * MSEC_PER_SEC) +
-					(interval.tv_nsec / NSEC_PER_MSEC);
-
-		if (millis_since_last_irq < BUTTON_DEBOUNCE)
-			return IRQ_HANDLED;
-
 		prev_up_button_irq = now;
 		led_event = UP;
 	}
