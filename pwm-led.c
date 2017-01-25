@@ -36,8 +36,8 @@
 
 #define DIVI_BITS_POS 12
 #define DIVF_BITS_POS 0
-#define DIVI_DEFAULT 35
-#define DIVF_DEFAULT 0
+#define DIVI_DEFAULT_VAL 35
+#define DIVF_DEFAULT_VAL 0
 
 #define DOWN_BUTTON_GPIO 23
 #define UP_BUTTON_GPIO 24
@@ -454,7 +454,7 @@ static void setup_pwm_clock(void)
 	kill_pwm_clock();
 	short_wait();
 
-	set_pwm_clock_divisors(DIVI_DEFAULT, DIVF_DEFAULT);
+	set_pwm_clock_divisors(DIVI_DEFAULT_VAL, DIVF_DEFAULT_VAL);
 	short_wait();
 
 	enable_pwm_clock();
