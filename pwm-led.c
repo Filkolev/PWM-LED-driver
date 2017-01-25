@@ -275,8 +275,6 @@ static int setup_pwm_led_gpios(void)
 		return ret;
 
 	ret = setup_pwm_led_gpio(up_button_gpio, "up button", INPUT);
-	if (ret)
-		return ret;
 
 	return ret;
 }
@@ -334,7 +332,6 @@ static int setup_pwm_led_irqs(void)
 	ret = setup_pwm_led_irq(up_button_gpio, &up_button_irq);
 	if (ret) {
 		free_irq(down_button_irq, NULL);
-		return ret;
 	}
 
 	return ret;
@@ -352,6 +349,7 @@ static int setup_pwm_led_irq(int gpio, int *irq)
 			__func__,
 			__LINE__,
 			gpio);
+
 		return *irq;
 	}
 
@@ -366,8 +364,6 @@ static int setup_pwm_led_irq(int gpio, int *irq)
 			__func__,
 			__LINE__,
 			*irq);
-
-		return ret;
 	}
 
 	return ret;
@@ -452,6 +448,8 @@ static int map_memory_regions(void)
 static void setup_pwm_clock(void)
 {
 	reset_pwm_clock_regs();
+	short_wait();
+
 	kill_pwm_clock();
 	short_wait();
 
@@ -465,6 +463,7 @@ static void setup_pwm_clock(void)
 static void reset_pwm_clock_regs(void)
 {
 	iowrite32(0, pwm_clk + PWM_CLK_CTL_OFFSET);
+	short_wait();
 	iowrite32(0, pwm_clk + PWM_CLK_DIV_OFFSET);
 }
 
