@@ -100,6 +100,7 @@ static void do_nothing(void) { }
 static void update_led_state(void);
 static void validate_led_max_level(void);
 
+static void setup_pwm_clock(void);
 static void activate_pwm_channel(void);
 static void deactivate_pwm_channel(void);
 
@@ -185,15 +186,7 @@ static int __init pwm_led_init(void)
 	if (ret)
 		goto iomap_err;
 
-	reset_pwm_clocks();
-	kill_pwm_clock();
-	short_wait();
-
-	set_pwm_clock_divisors(DIVI_DEFAULT, DIVF_DEFAULT);
-	short_wait();
-
-	enable_pwm_clock();
-	short_wait();
+	setup_pwm_clock();
 
 	func_select_reg_offset = REGISTER_WIDTH * (LED_GPIO / NUM_GPIOS_GPFSEL);
 	func_select_bit_offset = (LED_GPIO % NUM_GPIOS_GPFSEL) *
@@ -435,6 +428,19 @@ static int map_memory_regions(void)
 	}
 
 	return 0;
+}
+
+static void setup_pwm_clock(void)
+{
+	reset_pwm_clocks();
+	kill_pwm_clock();
+	short_wait();
+
+	set_pwm_clock_divisors(DIVI_DEFAULT, DIVF_DEFAULT);
+	short_wait();
+
+	enable_pwm_clock();
+	short_wait();
 }
 
 static void reset_pwm_clocks(void)
