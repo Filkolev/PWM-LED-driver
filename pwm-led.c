@@ -113,21 +113,20 @@ static void validate_led_max_level(void);
 static void setup_pwm_clock(void);
 static void activate_pwm_channel(void);
 static void deactivate_pwm_channel(void);
+static void reset_pwm_clock_regs(void);
+static void kill_pwm_clock(void);
+static void enable_pwm_clock(void);
+static void set_pwm_clock_divisors(int integer_part, int fractional_part);
 
 static void save_gpio_func_select(void);
 static void restore_gpio_func_select(void);
 static int gpio_select_function(int gpio, enum gpio_function function);
 
-static void dump_pwm_registers(void);
-
 static int map_memory_regions(void);
+
 static void short_wait(void);
 
-static void reset_pwm_clock_regs(void);
-static void kill_pwm_clock(void);
-static void enable_pwm_clock(void);
-
-static void set_pwm_clock_divisors(int integer_part, int fractional_part);
+static void dump_pwm_registers(void);
 
 /*
  * Data
