@@ -220,7 +220,6 @@ static int __init pwm_led_init(void)
 	goto out;
 
 gpio_setup_err:
-	restore_gpio_func_select();
 	reset_pwm_clock_regs();
 	iounmap(pwm_base);
 	iounmap(gpio_base);
