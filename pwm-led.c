@@ -123,7 +123,7 @@ static void dump_pwm_registers(void);
 static int map_memory_regions(void);
 static void short_wait(void);
 
-static void reset_pwm_clocks(void);
+static void reset_pwm_clock_regs(void);
 static void kill_pwm_clock(void);
 static void enable_pwm_clock(void);
 
@@ -222,7 +222,7 @@ static int __init pwm_led_init(void)
 
 gpio_setup_err:
 	restore_gpio_func_select();
-	reset_pwm_clocks();
+	reset_pwm_clock_regs();
 	iounmap(pwm_base);
 	iounmap(gpio_base);
 	iounmap(pwm_clk);
@@ -245,7 +245,7 @@ static void __exit pwm_led_exit(void)
 	deactivate_pwm_channel();
 	short_wait();
 
-	reset_pwm_clocks();
+	reset_pwm_clock_regs();
 
 	iounmap(pwm_base);
 	iounmap(gpio_base);
@@ -450,7 +450,7 @@ static int map_memory_regions(void)
 
 static void setup_pwm_clock(void)
 {
-	reset_pwm_clocks();
+	reset_pwm_clock_regs();
 	kill_pwm_clock();
 	short_wait();
 
@@ -461,7 +461,7 @@ static void setup_pwm_clock(void)
 	short_wait();
 }
 
-static void reset_pwm_clocks(void)
+static void reset_pwm_clock_regs(void)
 {
 	iowrite32(0, pwm_clk + PWM_CLK_CTL_OFFSET);
 	iowrite32(0, pwm_clk + PWM_CLK_DIV_OFFSET);
