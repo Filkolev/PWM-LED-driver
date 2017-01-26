@@ -593,11 +593,13 @@ static void update_led_state(void)
 static void increase_led_brightness(void)
 {
 	atomic_inc(&led_level);
+	schedule_work(&led_set_brightness_work);
 }
 
 static void decrease_led_brightness(void)
 {
 	atomic_dec(&led_level);
+	schedule_work(&led_set_brightness_work);
 }
 
 static void led_set_brightness_func(struct work_struct *work)
@@ -609,8 +611,6 @@ static void led_set_brightness_func(struct work_struct *work)
 
 	iowrite32(led_brightness, pwm_base + PWM_DAT1_OFFSET);
 	short_wait();
-
-	schedule_work(work);
 }
 
 static void dump_pwm_registers(void)
